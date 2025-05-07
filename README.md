@@ -174,6 +174,114 @@ Transfer the `.exe` to a 64-bit Windows environment and execute.
 ## POC(Test in VS Code)
 ![image](https://github.com/user-attachments/assets/87adf252-6d12-4c16-89e4-dc3cb761faaa)
 
+## Code Explanation
+
+### Header and Shellcode
+
+```cpp
+#include <windows.h>
+
+// Simple shellcode to display a MessageBox (64-bit)
+unsigned char shellcode[] = { ... };
+```
+`<windows.h>`: Provides Windows API functions for windows, messaging, and memory.  
+**Shellcode**: A simplified 64-bit payload to call `MessageBoxA("Hello World", "Test", 0, 0)`. It:
+- Sets up the stack and parameters.
+- Calls `MessageBoxA` (placeholder address).
+- Includes strings `"Hello World\0"` and `"Test\0"`.
+
+> Note: The `MessageBoxA` address is a placeholder; a real implementation would resolve it dynamically.
+
+### Window Procedure (`WndProc`)
+
+```cpp
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static LPVOID shellcodeAddr = NULL;
+    if (msg == WM_USER + 100) {
+        shellcodeAddr = VirtualAlloc(NULL, sizeof(shellcode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!shellcodeAddr) {
+            MessageBoxW(hwnd, L"Failed to allocate memory", L"Error", MB_OK | MB_ICONERROR);
+            return 0;
+        }
+        memcpy(shellcodeAddr, shellcode, sizeof(shellcode));
+        ((void(*)())shellcodeAddr)();
+        VirtualFree(shellcodeAddr, 0, MEM_RELEASE);
+        shellcodeAddr = NULL;
+        return 0;
+    }
+    if (msg == WM_DESTROY) {
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+```
+
+**Purpose**: Processes messages and executes the shellcode.
+
+#### Key Elements:
+
+- `static LPVOID shellcodeAddr = NULL`: Tracks allocated memory.
+- `if (msg == WM_USER + 100)`: Executes shellcode for the custom message.
+- `VirtualAlloc`: Allocates executable memory.
+- `memcpy`: Copies the shellcode.
+- `((void(*)())shellcodeAddr)()`: Runs the shellcode.
+- `VirtualFree`: Frees memory to prevent leaks.
+- `WM_DESTROY`: Handles window closure, posting `WM_QUIT`.
+- `DefWindowProcW`: Processes unhandled messages.
+
+### Main Function
+
+```cpp
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Register window class
+    WNDCLASSW wc = { 0 };
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = L"InjectWindow";
+    if (!RegisterClassW(&wc)) {
+        MessageBoxW(NULL, L"Failed to register window class", L"Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    // Create window
+    HWND hwnd = CreateWindowExW(0, L"InjectWindow", L"Shellcode Demo", WS_OVERLAPPEDWINDOW,
+                               CW_USEDEFAULT, CW_USEDEFAULT, 400, 300,
+                               NULL, NULL, hInstance, NULL);
+    if (!hwnd) {
+        MessageBoxW(NULL, L"Failed to create window", L"Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    // Show window
+    ShowWindow(hwnd, nCmdShow);
+    UpdateWindow(hwnd);
+
+    // Trigger shellcode
+    SendMessageW(hwnd, WM_USER + 100, 0, 0);
+
+    // Message loop
+    MSG msg = { 0 };
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    return (int)msg.wParam;
+}
+```
+
+**WinMain**: Uses the GUI entry point for compatibility with `-mwindows`.
+
+#### Window Setup:
+
+- Registers a window class (`InjectWindow`) with `WndProc`.
+- Creates a 400x300 window titled “Shellcode Demo”.
+
+**Display**: Shows and paints the window.  
+**Shellcode Trigger**: Sends `WM_USER + 100` to execute the shellcode.  
+**Message Loop**: Keeps the window responsive.  
+**Return**: Exits with the message loop’s result.
 
 ## How It Works
 
