@@ -1,4 +1,4 @@
-# Malware Development Part 14: Shellcode Injection via Window Callbacks-
+# Shellcode Injection via Window Callbacks
 
 Shellcode injection is a potent technique in security research and exploit development, enabling the execution of arbitrary machine code within a target process. This post focuses on **shellcode injection via window callbacks**, a method that leverages the Windows messaging system to execute shellcode through the `WndProc` function.
 
